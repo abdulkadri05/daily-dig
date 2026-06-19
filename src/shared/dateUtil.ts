@@ -8,3 +8,9 @@ export const tomorrowKey = (d: Date = new Date()): string => {
   next.setUTCDate(next.getUTCDate() + 1);
   return next.toISOString().slice(0, 10);
 };
+
+export const yesterdayKey = (d: Date = new Date()): string => {
+  const prev = new Date(d);
+  prev.setUTCDate(prev.getUTCDate() - 1);
+  return prev.toISOString().slice(0, 10);
+};

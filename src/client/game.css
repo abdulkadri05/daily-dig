@@ -4,6 +4,7 @@
   --ts-left-soft: #ffe2e2;
   --ts-right: #2156c4;
   --ts-right-soft: #dde7ff;
+  --ts-gold: #ffd966;
 }
 
 * {
@@ -78,6 +79,23 @@ body {
   font-size: 13px;
 }
 
+.ts-count {
+  font-size: 11px;
+  color: #98a3b6;
+  background: #2a2d39;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.ts-upcount {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ts-gold);
+  background: #4a3b16;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
 .ts-collapse {
   background: #2a2c34;
   border: 1px solid #3f424d;
@@ -100,6 +118,58 @@ body {
   display: none;
 }
 
+/* ---------- Yesterday banner ---------- */
+.ts-yesterday {
+  padding: 10px 12px;
+  background: linear-gradient(180deg, #232631 0%, #1f2229 100%);
+  border-bottom: 1px solid #2a2c34;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ts-y-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ts-y-tag {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  color: #98a3b6;
+  background: #2a2d39;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+}
+
+.ts-y-q {
+  color: #e8ecf3;
+  font-weight: 700;
+}
+
+.ts-y-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ts-y-power {
+  color: #98a3b6;
+  font-size: 12px;
+}
+
+.ts-y-mvp {
+  color: #d8dde6;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+/* ---------- Actions row ---------- */
 .ts-actions {
   padding: 10px 12px;
   border-bottom: 1px solid #2a2c34;
@@ -140,6 +210,7 @@ body {
   border-left: 4px solid #555;
   border-radius: 8px;
   padding: 8px 10px;
+  transition: transform 0.12s ease, border-color 0.12s ease;
 }
 
 .ts-card.ts-left {
@@ -150,12 +221,22 @@ body {
   border-left-color: var(--ts-right);
 }
 
+.ts-card.ts-own {
+  background: linear-gradient(180deg, #2c2a1e 0%, #232631 100%);
+  border-color: var(--ts-gold);
+}
+
+.ts-card.ts-is-mvp {
+  box-shadow: 0 0 0 1px var(--ts-gold), 0 0 12px rgba(255, 217, 102, 0.25);
+}
+
 .ts-card-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 
 .ts-pill {
@@ -176,9 +257,32 @@ body {
   background: var(--ts-right);
 }
 
+.ts-pill.ts-tie {
+  background: #555;
+}
+
+.ts-mvp {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #4d3a05;
+  background: var(--ts-gold);
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
+.ts-youbadge {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: #fff;
+  background: #6d4c0e;
+  padding: 2px 6px;
+  border-radius: 6px;
+}
+
 .ts-author {
   font-size: 11px;
   color: #98a3b6;
+  margin-left: auto;
 }
 
 .ts-text {
@@ -204,6 +308,11 @@ body {
   border-radius: 6px;
   cursor: pointer;
   min-width: 56px;
+  transition: transform 0.08s ease;
+}
+
+.ts-upvote:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
 .ts-upvote:disabled {
@@ -278,7 +387,7 @@ body {
 }
 
 .ts-side.ts-chosen {
-  outline: 3px solid #ffd966;
+  outline: 3px solid var(--ts-gold);
   outline-offset: 2px;
 }
 
@@ -328,4 +437,31 @@ body {
   color: #ffd699;
   font-size: 12px;
   min-height: 14px;
+}
+
+/* ---------- Toast ---------- */
+#ts-toast {
+  position: fixed;
+  left: 50%;
+  top: calc(env(safe-area-inset-top, 12px) + 12px);
+  transform: translate(-50%, -20px);
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff7d6;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid #4a3b16;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  z-index: 20;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+#ts-toast.ts-show {
+  opacity: 1;
+  transform: translate(-50%, 0);
 }

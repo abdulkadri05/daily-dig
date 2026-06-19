@@ -18,23 +18,43 @@ const missingPost = (c: Context) =>
     400
   );
 
+const buildInit = async (): Promise<InitResponse> => {
+  const username = (await reddit.getCurrentUsername()) ?? 'anonymous';
+  const { prompt, tally, args, player, yesterday, playerCount } =
+    await initState(username);
+  return {
+    type: 'init',
+    username,
+    prompt,
+    tally,
+    args,
+    player,
+    yesterday,
+    playerCount,
+  };
+};
+
 api.get('/init', async (c) => {
   if (!context.postId) return missingPost(c);
   try {
-    const username = (await reddit.getCurrentUsername()) ?? 'anonymous';
-    const { prompt, tally, args, player } = await initState(username);
-    return c.json<InitResponse>({
-      type: 'init',
-      username,
-      prompt,
-      tally,
-      args,
-      player,
-    });
+    return c.json<InitResponse>(await buildInit());
   } catch (err) {
     console.error('init error', err);
     return c.json<ErrorResponse>(
       { status: 'error', message: 'init failed' },
+      500
+    );
+  }
+});
+
+api.get('/refresh', async (c) => {
+  if (!context.postId) return missingPost(c);
+  try {
+    return c.json<InitResponse>(await buildInit());
+  } catch (err) {
+    console.error('refresh error', err);
+    return c.json<ErrorResponse>(
+      { status: 'error', message: 'refresh failed' },
       500
     );
   }
@@ -87,29 +107,6 @@ api.post('/upvote', async (c) => {
     console.error('upvote error', err);
     return c.json<ErrorResponse>(
       { status: 'error', message: 'upvote failed' },
-      500
-    );
-  }
-});
-
-// /init also acts as the tally refresh endpoint.
-api.get('/refresh', async (c) => {
-  if (!context.postId) return missingPost(c);
-  try {
-    const username = (await reddit.getCurrentUsername()) ?? 'anonymous';
-    const { prompt, tally, args, player } = await initState(username);
-    return c.json<InitResponse>({
-      type: 'init',
-      username,
-      prompt,
-      tally,
-      args,
-      player,
-    });
-  } catch (err) {
-    console.error('refresh error', err);
-    return c.json<ErrorResponse>(
-      { status: 'error', message: 'refresh failed' },
       500
     );
   }

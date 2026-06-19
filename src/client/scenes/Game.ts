@@ -9,29 +9,39 @@ import {
   type SubmitResponse,
   type Tally,
   type UpvoteResponse,
+  type YesterdayResult,
 } from '../../shared/api';
 import { Arena } from './arena';
 
 const REFRESH_MS = 8000;
+
+type ClientState = {
+  username: string;
+  date: string;
+  question: string;
+  leftLabel: string;
+  rightLabel: string;
+  tally: Tally;
+  args: Argument[];
+  player: PlayerState;
+  yesterday: YesterdayResult | null;
+  playerCount: number;
+};
 
 export class Game extends Scene {
   private arena!: Arena;
   private promptText!: Phaser.GameObjects.Text;
   private dateText!: Phaser.GameObjects.Text;
 
-  private state: {
-    username: string;
-    date: string;
-    question: string;
-    leftLabel: string;
-    rightLabel: string;
-    tally: Tally;
-    args: Argument[];
-    player: PlayerState;
-  } | null = null;
+  private state: ClientState | null = null;
+  private prevUpvotes = new Map<string, number>();
+  private prevPull = 0;
+  private mvpLeftArgId: string | null = null;
+  private mvpRightArgId: string | null = null;
 
   private panel?: HTMLDivElement;
   private modal?: HTMLDivElement;
+  private toastTimer?: number;
   private refreshHandle?: number;
 
   constructor() {
@@ -83,6 +93,10 @@ export class Game extends Scene {
       clearInterval(this.refreshHandle);
       delete this.refreshHandle;
     }
+    if (this.toastTimer) {
+      clearTimeout(this.toastTimer);
+      delete this.toastTimer;
+    }
     if (this.panel) {
       this.panel.remove();
       delete this.panel;
@@ -115,7 +129,7 @@ export class Game extends Scene {
       const res = await fetch('/api/init');
       if (!res.ok) throw new Error(`init ${res.status}`);
       const data = (await res.json()) as InitResponse;
-      this.applyData(data);
+      this.applyData(data, /*initial*/ true);
     } catch (err) {
       console.error('init failed', err);
       this.promptText.setText('Couldn’t reach the server. Try refreshing.');
@@ -127,13 +141,43 @@ export class Game extends Scene {
       const res = await fetch('/api/refresh');
       if (!res.ok) return;
       const data = (await res.json()) as InitResponse;
-      this.applyData(data);
+      this.applyData(data, /*initial*/ false);
     } catch {
       // silent; next tick will retry
     }
   }
 
-  private applyData(data: InitResponse): void {
+  private applyData(data: InitResponse, initial: boolean): void {
+    // Detect deltas BEFORE we overwrite state.
+    const myOldUpvotes = this.state?.player.argumentId
+      ? this.prevUpvotes.get(this.state.player.argumentId) ?? 0
+      : 0;
+    const upvoteBumps: string[] = [];
+    for (const a of data.args) {
+      const prev = this.prevUpvotes.get(a.id);
+      if (typeof prev === 'number' && a.upvotes > prev) {
+        upvoteBumps.push(a.id);
+      }
+    }
+    const newPull = data.tally.pull;
+    const pullDelta = Math.abs(newPull - this.prevPull);
+
+    // Recompute MVPs (top-power argument per side).
+    let mvpLeft: Argument | null = null;
+    let mvpRight: Argument | null = null;
+    for (const a of data.args) {
+      const power = 1 + a.upvotes;
+      if (a.side === 'left') {
+        const pl = mvpLeft ? 1 + mvpLeft.upvotes : -1;
+        if (power > pl) mvpLeft = a;
+      } else {
+        const pr = mvpRight ? 1 + mvpRight.upvotes : -1;
+        if (power > pr) mvpRight = a;
+      }
+    }
+    this.mvpLeftArgId = mvpLeft ? mvpLeft.id : null;
+    this.mvpRightArgId = mvpRight ? mvpRight.id : null;
+
     this.state = {
       username: data.username,
       date: data.prompt.date,
@@ -143,11 +187,47 @@ export class Game extends Scene {
       tally: data.tally,
       args: data.args,
       player: data.player,
+      yesterday: data.yesterday,
+      playerCount: data.playerCount,
     };
     this.promptText.setText(data.prompt.question);
-    this.dateText.setText(`Take Sides · ${data.prompt.date} · u/${data.username}`);
+    const streakBit =
+      data.player.streak > 1 ? ` · 🔥 ${data.player.streak}-day streak` : '';
+    this.dateText.setText(
+      `Take Sides · ${data.prompt.date} · u/${data.username}${streakBit}`
+    );
     this.arena.update(data.tally);
-    this.arena.syncFighters(data.args);
+    this.arena.syncFighters(data.args, {
+      yourArgId: data.player.argumentId,
+      mvpLeftArgId: this.mvpLeftArgId,
+      mvpRightArgId: this.mvpRightArgId,
+    });
+
+    // Trigger juice only after the first load — otherwise initial fetch
+    // would fire confetti for every existing argument.
+    if (!initial) {
+      for (const id of upvoteBumps) {
+        this.arena.celebrateUpvote(id);
+      }
+      if (pullDelta > 0.08) {
+        this.arena.shake(0.004 + Math.min(0.01, pullDelta * 0.02), 280);
+      }
+      const myArgId = data.player.argumentId;
+      if (myArgId) {
+        const myNewUpvotes =
+          data.args.find((a) => a.id === myArgId)?.upvotes ?? 0;
+        if (myNewUpvotes > myOldUpvotes) {
+          this.showToast(
+            `🔥 Someone upvoted your argument (+${myNewUpvotes - myOldUpvotes})`
+          );
+        }
+      }
+    }
+
+    this.prevUpvotes.clear();
+    for (const a of data.args) this.prevUpvotes.set(a.id, a.upvotes);
+    this.prevPull = newPull;
+
     this.renderPanel();
   }
 
@@ -161,6 +241,7 @@ export class Game extends Scene {
         <button class="ts-collapse" id="ts-collapse" aria-label="Toggle panel">▾</button>
       </div>
       <div class="ts-panel-body" id="ts-body">
+        <div class="ts-yesterday" id="ts-yesterday" hidden></div>
         <div class="ts-actions" id="ts-actions"></div>
         <div class="ts-args" id="ts-args"></div>
       </div>
@@ -178,7 +259,6 @@ export class Game extends Scene {
         collapsed ? '64px' : '46vh'
       );
       collapseBtn.textContent = collapsed ? '▴' : '▾';
-      // Nudge Phaser to recompute the new canvas size.
       window.dispatchEvent(new Event('resize'));
     });
   }
@@ -188,10 +268,43 @@ export class Game extends Scene {
     const status = this.panel.querySelector<HTMLDivElement>('#ts-status')!;
     const actions = this.panel.querySelector<HTMLDivElement>('#ts-actions')!;
     const argsEl = this.panel.querySelector<HTMLDivElement>('#ts-args')!;
+    const yEl = this.panel.querySelector<HTMLDivElement>('#ts-yesterday')!;
     const s = this.state;
 
+    // Yesterday banner.
+    if (s.yesterday && s.yesterday.winnerSide) {
+      yEl.hidden = false;
+      const winnerClass =
+        s.yesterday.winnerSide === 'left'
+          ? 'ts-left'
+          : s.yesterday.winnerSide === 'right'
+            ? 'ts-right'
+            : 'ts-tie';
+      yEl.innerHTML = `
+        <div class="ts-y-head">
+          <span class="ts-y-tag">Yesterday</span>
+          <span class="ts-y-q">${escapeHtml(s.yesterday.question)}</span>
+        </div>
+        <div class="ts-y-row">
+          <span class="ts-pill ${winnerClass}">${escapeHtml(s.yesterday.winnerLabel ?? 'Tie')}</span>
+          <span class="ts-y-power">${s.yesterday.leftPower} vs ${s.yesterday.rightPower}</span>
+        </div>
+        ${
+          s.yesterday.mvpAuthor
+            ? `<div class="ts-y-mvp">👑 MVP: <strong>u/${escapeHtml(s.yesterday.mvpAuthor)}</strong> — “${escapeHtml(s.yesterday.mvpText ?? '')}” (${s.yesterday.mvpUpvotes} upvotes)</div>`
+            : ''
+        }
+      `;
+    } else {
+      yEl.hidden = true;
+    }
+
+    // Status bar.
     if (!s.player.hasSubmitted) {
-      status.innerHTML = `<span class="ts-prompt">${escapeHtml(s.question)}</span>`;
+      status.innerHTML = `
+        <span class="ts-prompt">${escapeHtml(s.question)}</span>
+        <span class="ts-count">${s.playerCount} on the rope</span>
+      `;
       actions.innerHTML = `
         <button class="ts-cta" id="ts-pick">🪢 Pick your side</button>
       `;
@@ -203,11 +316,15 @@ export class Game extends Scene {
         s.player.side === 'left' ? s.leftLabel : s.rightLabel;
       const sideClass = s.player.side === 'left' ? 'ts-left' : 'ts-right';
       const myArg = s.args.find((a) => a.id === s.player.argumentId);
+      const myUpvotes = myArg?.upvotes ?? 0;
       status.innerHTML = `
         <span class="ts-pill ${sideClass}">${escapeHtml(sideLabel)}</span>
         <span class="ts-mine">${myArg ? `“${escapeHtml(myArg.text)}”` : 'Your argument is on the rope.'}</span>
+        <span class="ts-upcount">▲ ${myUpvotes}</span>
       `;
-      actions.innerHTML = `<div class="ts-tip">Upvote arguments to add their pull to your side.</div>`;
+      actions.innerHTML = `
+        <div class="ts-tip">Upvote arguments to pull harder for that side · ${s.playerCount} players today</div>
+      `;
     }
 
     // Argument cards.
@@ -218,10 +335,17 @@ export class Game extends Scene {
       const label = a.side === 'left' ? s.leftLabel : s.rightLabel;
       const isOwn = a.author === s.username;
       const alreadyUpvoted = s.player.upvotedArgIds.includes(a.id);
-      card.className = `ts-card ${sideClass}`;
+      const isMvp =
+        (a.side === 'left' && a.id === this.mvpLeftArgId) ||
+        (a.side === 'right' && a.id === this.mvpRightArgId);
+      const mvpBadge = isMvp ? `<span class="ts-mvp">👑 MVP</span>` : '';
+      const youBadge = isOwn ? `<span class="ts-youbadge">⭐ You</span>` : '';
+      card.className = `ts-card ${sideClass}${isOwn ? ' ts-own' : ''}${isMvp ? ' ts-is-mvp' : ''}`;
       card.innerHTML = `
         <div class="ts-card-head">
           <span class="ts-pill ${sideClass}">${escapeHtml(label)}</span>
+          ${mvpBadge}
+          ${youBadge}
           <span class="ts-author">u/${escapeHtml(a.author)}</span>
         </div>
         <div class="ts-text">${escapeHtml(a.text)}</div>
@@ -331,7 +455,12 @@ export class Game extends Scene {
       }
       modal.remove();
       delete this.modal;
-      // Refresh full state so the new fighter shows up on the rope.
+      this.showToast(
+        data.player.streak > 1
+          ? `🪢 On the rope! 🔥 ${data.player.streak}-day streak`
+          : '🪢 On the rope!'
+      );
+      this.arena.shake(0.006, 320);
       await this.refresh();
     } catch (err) {
       console.error('submit failed', err);
@@ -350,12 +479,30 @@ export class Game extends Scene {
       });
       if (!res.ok) throw new Error(`upvote ${res.status}`);
       const data = (await res.json()) as UpvoteResponse;
-      if (!data.ok) return;
-      this.arena.highlightFighter(argumentId);
+      if (!data.ok) {
+        this.showToast(data.message);
+        return;
+      }
+      this.arena.celebrateUpvote(argumentId);
       await this.refresh();
     } catch (err) {
       console.error('upvote failed', err);
     }
+  }
+
+  private showToast(message: string): void {
+    let toast = document.getElementById('ts-toast') as HTMLDivElement | null;
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.id = 'ts-toast';
+      document.body.appendChild(toast);
+    }
+    toast.textContent = message;
+    toast.classList.add('ts-show');
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => {
+      toast?.classList.remove('ts-show');
+    }, 2400);
   }
 }
 

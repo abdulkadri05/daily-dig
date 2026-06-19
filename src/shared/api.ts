@@ -37,6 +37,21 @@ export type PlayerState = {
   side: Side | null;
   argumentId: string | null;
   upvotedArgIds: string[];
+  streak: number; // consecutive days the player has participated, incl. today
+};
+
+export type YesterdayResult = {
+  date: string;
+  question: string;
+  leftLabel: string;
+  rightLabel: string;
+  winnerSide: Side | 'tie' | null; // null if no one played yesterday
+  winnerLabel: string | null;
+  leftPower: number;
+  rightPower: number;
+  mvpAuthor: string | null;
+  mvpText: string | null;
+  mvpUpvotes: number;
 };
 
 export type InitResponse = {
@@ -46,6 +61,8 @@ export type InitResponse = {
   tally: Tally;
   args: Argument[]; // capped at TOP_ARGUMENTS for payload size
   player: PlayerState;
+  yesterday: YesterdayResult | null;
+  playerCount: number; // distinct players who picked a side today
 };
 
 export type SubmitRequest = {
