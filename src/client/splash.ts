@@ -11,7 +11,7 @@ startButton.addEventListener('click', (e) => {
 
 rulesLink.addEventListener('click', () => {
   showToast(
-    'Tap the island to dig. Closer taps make warmer ripples. Find chests, then bury one for tomorrow.'
+    'Pick a side. Write one line. Upvotes on arguments pull the rope toward that side. End of day: one side wins.'
   );
 });
 
@@ -20,7 +20,7 @@ function init() {
   if (user) {
     titleEl.textContent = `Hey ${user} 👋`;
     descEl.textContent =
-      'Hunt for chests other Redditors buried yesterday. Bury one for tomorrow.';
+      'Take a side. Write one line. Upvotes pull the rope. Daily.';
   }
 }
 

@@ -3,6 +3,6 @@ import { dayKey } from '../../shared/dateUtil';
 
 export const createPost = async () => {
   return await reddit.submitCustomPost({
-    title: `🪙 The Daily Dig — ${dayKey()}`,
+    title: `🪢 Take Sides — ${dayKey()}`,
   });
 };

@@ -1,88 +1,78 @@
-// Coordinates are normalized 0..1 across the island canvas so client and server
-// agree on positions regardless of the rendered viewport size.
-export type Point = { x: number; y: number };
+// Take Sides shared types — contract between client and server.
 
-export type Treasure = {
-  id: string;
-  pos: Point;
-  hider: string;
-  clue: string;
-  foundBy: string[];
-};
+export type Side = 'left' | 'right';
 
-// What the player sees about a treasure they've found.
-export type FoundTreasure = {
-  id: string;
-  pos: Point;
-  hider: string;
-  clue: string;
-};
-
-export type PlayerDayState = {
-  tapsUsed: number;
-  tapsLimit: number;
-  found: FoundTreasure[];
-  hasBuried: boolean;
-};
-
-export type LeaderboardEntry = {
-  username: string;
-  foundCount: number;
-  tapsUsed: number;
-};
-
-export type InitGameResponse = {
-  type: 'init';
+export type DailyPrompt = {
   date: string; // YYYY-MM-DD (UTC)
+  question: string;
+  leftLabel: string;
+  rightLabel: string;
+};
+
+export type Argument = {
+  id: string;
+  author: string;
+  side: Side;
+  text: string;
+  upvotes: number; // number of upvotes from other players
+  createdAt: number; // ms epoch
+};
+
+export type SideTally = {
+  side: Side;
+  label: string;
+  count: number; // arguments on this side
+  power: number; // sum of (1 + upvotes) for each argument on this side
+};
+
+export type Tally = {
+  left: SideTally;
+  right: SideTally;
+  // pull is in [-1, 1] — negative means left is winning, positive means right.
+  pull: number;
+};
+
+export type PlayerState = {
+  hasSubmitted: boolean;
+  side: Side | null;
+  argumentId: string | null;
+  upvotedArgIds: string[];
+};
+
+export type InitResponse = {
+  type: 'init';
   username: string;
-  treasureCount: number; // how many treasures are buried today (for context)
-  player: PlayerDayState;
-  leaderboard: LeaderboardEntry[];
+  prompt: DailyPrompt;
+  tally: Tally;
+  args: Argument[]; // capped at TOP_ARGUMENTS for payload size
+  player: PlayerState;
 };
 
-export type DigRequest = {
-  pos: Point;
+export type SubmitRequest = {
+  side: Side;
+  text: string;
 };
 
-export type DigOutcomeFound = {
-  outcome: 'found';
-  treasure: FoundTreasure;
-  player: PlayerDayState;
-};
-
-export type DigOutcomeMiss = {
-  outcome: 'miss';
-  // Distance to the nearest *unfound-by-this-player* treasure, 0..~1.4 (diagonal of a unit square).
-  nearest: number;
-  player: PlayerDayState;
-};
-
-export type DigOutcomeOutOfTaps = {
-  outcome: 'out_of_taps';
-  player: PlayerDayState;
-};
-
-export type DigResponse =
-  | DigOutcomeFound
-  | DigOutcomeMiss
-  | DigOutcomeOutOfTaps;
-
-export type BuryRequest = {
-  pos: Point;
-  clue: string;
-};
-
-export type BuryResponse = {
-  type: 'bury';
+export type SubmitResponse = {
+  type: 'submit';
   ok: boolean;
   message: string;
-  player: PlayerDayState;
+  player: PlayerState;
+  argument?: Argument;
+  tally: Tally;
 };
 
-export type LeaderboardResponse = {
-  type: 'leaderboard';
-  date: string;
-  entries: LeaderboardEntry[];
+export type UpvoteRequest = {
+  argumentId: string;
+};
+
+export type UpvoteResponse = {
+  type: 'upvote';
+  ok: boolean;
+  message: string;
+  argument?: Argument;
+  player: PlayerState;
+  tally: Tally;
 };
 
 export type ErrorResponse = {
@@ -90,6 +80,5 @@ export type ErrorResponse = {
   message: string;
 };
 
-export const TAPS_PER_DAY = 20;
-export const FIND_RADIUS = 0.04; // normalized; ~4% of canvas width
-export const MAX_CLUE_LENGTH = 80;
+export const MAX_ARG_LENGTH = 140;
+export const TOP_ARGUMENTS = 60; // most we return to client per fetch

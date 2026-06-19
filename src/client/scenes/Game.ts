@@ -1,141 +1,112 @@
 import * as Phaser from 'phaser';
 import { Scene } from 'phaser';
-import type {
-  DigResponse,
-  FoundTreasure,
-  InitGameResponse,
-  LeaderboardEntry,
-  PlayerDayState,
-} from '../../shared/api';
 import {
-  computeIslandLayout,
-  drawIsland,
-  isInsideIsland,
-  screenToUnit,
-  unitToScreen,
-  type IslandLayout,
-} from './island';
+  MAX_ARG_LENGTH,
+  type Argument,
+  type InitResponse,
+  type PlayerState,
+  type Side,
+  type SubmitResponse,
+  type Tally,
+  type UpvoteResponse,
+} from '../../shared/api';
+import { Arena } from './arena';
 
-type Hud = {
-  tapsText: Phaser.GameObjects.Text;
-  foundText: Phaser.GameObjects.Text;
-  dateText: Phaser.GameObjects.Text;
-  burialBtn: Phaser.GameObjects.Text;
-  leaderboardTitle: Phaser.GameObjects.Text;
-  leaderboardRows: Phaser.GameObjects.Text[];
-};
+const REFRESH_MS = 8000;
 
 export class Game extends Scene {
-  private layout!: IslandLayout;
-  private islandG!: Phaser.GameObjects.Graphics;
-  private markerLayer!: Phaser.GameObjects.Container;
-  private effectsLayer!: Phaser.GameObjects.Container;
-  private hud!: Hud;
-  private revealGroup: Phaser.GameObjects.GameObject[] = [];
+  private arena!: Arena;
+  private promptText!: Phaser.GameObjects.Text;
+  private dateText!: Phaser.GameObjects.Text;
 
-  private date = '';
-  private username = 'anonymous';
-  private player: PlayerDayState = {
-    tapsUsed: 0,
-    tapsLimit: 20,
-    found: [],
-    hasBuried: false,
-  };
-  private treasureCount = 0;
-  private leaderboard: LeaderboardEntry[] = [];
-  private busy = false;
+  private state: {
+    username: string;
+    date: string;
+    question: string;
+    leftLabel: string;
+    rightLabel: string;
+    tally: Tally;
+    args: Argument[];
+    player: PlayerState;
+  } | null = null;
+
+  private panel?: HTMLDivElement;
+  private modal?: HTMLDivElement;
+  private refreshHandle?: number;
 
   constructor() {
     super('Game');
   }
 
   create() {
-    this.cameras.main.setBackgroundColor(0x0a2030);
-    this.layout = computeIslandLayout(this.scale.width, this.scale.height);
-    this.islandG = this.add.graphics();
-    this.markerLayer = this.add.container(0, 0);
-    this.effectsLayer = this.add.container(0, 0);
-    this.buildHud();
-    drawIsland(this.islandG, this.layout);
+    this.cameras.main.setBackgroundColor(0x9b4a7a);
 
-    this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      void this.onPointerDown(p);
-    });
+    this.arena = new Arena(this, this.scale.width, this.scale.height);
 
-    this.scale.on('resize', () => this.refreshLayout());
+    this.promptText = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Arial Black',
+        fontSize: '20px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 5,
+        align: 'center',
+        wordWrap: { width: this.scale.width - 32 },
+      })
+      .setOrigin(0.5, 0);
+    this.dateText = this.add
+      .text(0, 0, '', {
+        fontFamily: 'Arial',
+        fontSize: '12px',
+        color: '#ffffff',
+        stroke: '#000000',
+        strokeThickness: 3,
+      })
+      .setOrigin(0.5, 0);
 
+    this.positionHud();
+    this.scale.on('resize', () => this.onResize());
+
+    this.buildPanel();
     void this.loadInit();
+
+    this.refreshHandle = window.setInterval(() => {
+      void this.refresh();
+    }, REFRESH_MS);
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.teardown());
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.teardown());
+  }
+
+  private teardown(): void {
+    if (this.refreshHandle) {
+      clearInterval(this.refreshHandle);
+      delete this.refreshHandle;
+    }
+    if (this.panel) {
+      this.panel.remove();
+      delete this.panel;
+    }
+    if (this.modal) {
+      this.modal.remove();
+      delete this.modal;
+    }
+    document.documentElement.style.removeProperty('--ts-panel-height');
   }
 
   // ---------- Layout ----------
-  private refreshLayout(): void {
+  private onResize(): void {
     const { width, height } = this.scale;
     this.cameras.resize(width, height);
-    this.layout = computeIslandLayout(width, height);
-    drawIsland(this.islandG, this.layout);
-    this.redrawMarkers();
-    this.positionHud();
-  }
-
-  private buildHud(): void {
-    const baseStyle: Phaser.Types.GameObjects.Text.TextStyle = {
-      fontFamily: 'Arial Black',
-      fontSize: '20px',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 4,
-    };
-    const small: Phaser.Types.GameObjects.Text.TextStyle = {
-      fontFamily: 'Arial',
-      fontSize: '14px',
-      color: '#ffffff',
-      stroke: '#000000',
-      strokeThickness: 3,
-    };
-    this.hud = {
-      dateText: this.add.text(0, 0, '', small).setOrigin(0, 0),
-      tapsText: this.add.text(0, 0, '', baseStyle).setOrigin(0, 0),
-      foundText: this.add.text(0, 0, '', baseStyle).setOrigin(1, 0),
-      burialBtn: this.add
-        .text(0, 0, '🪙 Bury for tomorrow', {
-          ...baseStyle,
-          fontSize: '18px',
-          backgroundColor: '#d93900',
-          padding: { x: 14, y: 8 },
-        })
-        .setOrigin(0.5, 0.5)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerup', (p: Phaser.Input.Pointer) => {
-          p.event?.stopPropagation?.();
-          this.scene.start('Bury');
-        }),
-      leaderboardTitle: this.add
-        .text(0, 0, '🏴‍☠️ Top hunters', small)
-        .setOrigin(1, 0),
-      leaderboardRows: [],
-    };
-    for (let i = 0; i < 5; i++) {
-      this.hud.leaderboardRows.push(
-        this.add.text(0, 0, '', small).setOrigin(1, 0)
-      );
-    }
+    this.arena.resize(width, height);
+    this.promptText.setStyle({ wordWrap: { width: width - 32 } });
     this.positionHud();
   }
 
   private positionHud(): void {
-    const { width, height } = this.scale;
-    const pad = 12;
-    this.hud.dateText.setPosition(pad, pad);
-    this.hud.tapsText.setPosition(pad, pad + 18);
-    this.hud.foundText.setPosition(width - pad, pad);
-
-    this.hud.leaderboardTitle.setPosition(width - pad, pad + 28);
-    this.hud.leaderboardRows.forEach((row, i) => {
-      row.setPosition(width - pad, pad + 48 + i * 18);
-    });
-
-    // Bury button anchored in the reserved bottom strip.
-    this.hud.burialBtn.setPosition(width / 2, height - 30);
+    const { width } = this.scale;
+    this.promptText.setPosition(width / 2, 60);
+    this.dateText.setPosition(width / 2, 44);
   }
 
   // ---------- Network ----------
@@ -143,300 +114,255 @@ export class Game extends Scene {
     try {
       const res = await fetch('/api/init');
       if (!res.ok) throw new Error(`init ${res.status}`);
-      const data = (await res.json()) as InitGameResponse;
-      this.date = data.date;
-      this.username = data.username;
-      this.player = data.player;
-      this.treasureCount = data.treasureCount;
-      this.leaderboard = data.leaderboard;
-      this.refreshHudText();
-      this.redrawMarkers();
+      const data = (await res.json()) as InitResponse;
+      this.applyData(data);
     } catch (err) {
       console.error('init failed', err);
-      this.hud.dateText.setText('Couldn\'t reach the server. Try refreshing.');
+      this.promptText.setText('Couldn’t reach the server. Try refreshing.');
     }
   }
 
-  private async postDig(ux: number, uy: number): Promise<DigResponse | null> {
+  private async refresh(): Promise<void> {
     try {
-      const res = await fetch('/api/dig', {
+      const res = await fetch('/api/refresh');
+      if (!res.ok) return;
+      const data = (await res.json()) as InitResponse;
+      this.applyData(data);
+    } catch {
+      // silent; next tick will retry
+    }
+  }
+
+  private applyData(data: InitResponse): void {
+    this.state = {
+      username: data.username,
+      date: data.prompt.date,
+      question: data.prompt.question,
+      leftLabel: data.prompt.leftLabel,
+      rightLabel: data.prompt.rightLabel,
+      tally: data.tally,
+      args: data.args,
+      player: data.player,
+    };
+    this.promptText.setText(data.prompt.question);
+    this.dateText.setText(`Take Sides · ${data.prompt.date} · u/${data.username}`);
+    this.arena.update(data.tally);
+    this.arena.syncFighters(data.args);
+    this.renderPanel();
+  }
+
+  // ---------- DOM panel ----------
+  private buildPanel(): void {
+    const root = document.createElement('div');
+    root.id = 'ts-panel';
+    root.innerHTML = `
+      <div class="ts-panel-bar">
+        <div class="ts-panel-status" id="ts-status">Loading…</div>
+        <button class="ts-collapse" id="ts-collapse" aria-label="Toggle panel">▾</button>
+      </div>
+      <div class="ts-panel-body" id="ts-body">
+        <div class="ts-actions" id="ts-actions"></div>
+        <div class="ts-args" id="ts-args"></div>
+      </div>
+    `;
+    document.body.appendChild(root);
+    this.panel = root;
+
+    document.documentElement.style.setProperty('--ts-panel-height', '46vh');
+
+    const collapseBtn = root.querySelector<HTMLButtonElement>('#ts-collapse')!;
+    collapseBtn.addEventListener('click', () => {
+      const collapsed = root.classList.toggle('ts-collapsed');
+      document.documentElement.style.setProperty(
+        '--ts-panel-height',
+        collapsed ? '64px' : '46vh'
+      );
+      collapseBtn.textContent = collapsed ? '▴' : '▾';
+      // Nudge Phaser to recompute the new canvas size.
+      window.dispatchEvent(new Event('resize'));
+    });
+  }
+
+  private renderPanel(): void {
+    if (!this.panel || !this.state) return;
+    const status = this.panel.querySelector<HTMLDivElement>('#ts-status')!;
+    const actions = this.panel.querySelector<HTMLDivElement>('#ts-actions')!;
+    const argsEl = this.panel.querySelector<HTMLDivElement>('#ts-args')!;
+    const s = this.state;
+
+    if (!s.player.hasSubmitted) {
+      status.innerHTML = `<span class="ts-prompt">${escapeHtml(s.question)}</span>`;
+      actions.innerHTML = `
+        <button class="ts-cta" id="ts-pick">🪢 Pick your side</button>
+      `;
+      actions
+        .querySelector<HTMLButtonElement>('#ts-pick')!
+        .addEventListener('click', () => this.openSubmitModal());
+    } else {
+      const sideLabel =
+        s.player.side === 'left' ? s.leftLabel : s.rightLabel;
+      const sideClass = s.player.side === 'left' ? 'ts-left' : 'ts-right';
+      const myArg = s.args.find((a) => a.id === s.player.argumentId);
+      status.innerHTML = `
+        <span class="ts-pill ${sideClass}">${escapeHtml(sideLabel)}</span>
+        <span class="ts-mine">${myArg ? `“${escapeHtml(myArg.text)}”` : 'Your argument is on the rope.'}</span>
+      `;
+      actions.innerHTML = `<div class="ts-tip">Upvote arguments to add their pull to your side.</div>`;
+    }
+
+    // Argument cards.
+    argsEl.innerHTML = '';
+    for (const a of s.args) {
+      const card = document.createElement('div');
+      const sideClass = a.side === 'left' ? 'ts-left' : 'ts-right';
+      const label = a.side === 'left' ? s.leftLabel : s.rightLabel;
+      const isOwn = a.author === s.username;
+      const alreadyUpvoted = s.player.upvotedArgIds.includes(a.id);
+      card.className = `ts-card ${sideClass}`;
+      card.innerHTML = `
+        <div class="ts-card-head">
+          <span class="ts-pill ${sideClass}">${escapeHtml(label)}</span>
+          <span class="ts-author">u/${escapeHtml(a.author)}</span>
+        </div>
+        <div class="ts-text">${escapeHtml(a.text)}</div>
+        <div class="ts-card-foot">
+          <button class="ts-upvote ${alreadyUpvoted ? 'ts-on' : ''}" data-id="${a.id}" ${
+            isOwn || alreadyUpvoted ? 'disabled' : ''
+          }>
+            ▲ ${a.upvotes}
+          </button>
+        </div>
+      `;
+      const btn = card.querySelector<HTMLButtonElement>('.ts-upvote');
+      if (btn && !isOwn && !alreadyUpvoted) {
+        btn.addEventListener('click', () => void this.upvote(a.id));
+      }
+      argsEl.appendChild(card);
+    }
+    if (s.args.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'ts-empty';
+      empty.textContent = 'No arguments yet. Be the first to pull the rope.';
+      argsEl.appendChild(empty);
+    }
+  }
+
+  private openSubmitModal(): void {
+    if (!this.state) return;
+    if (this.modal) this.modal.remove();
+    const m = document.createElement('div');
+    m.id = 'ts-modal';
+    m.innerHTML = `
+      <div class="ts-modal-card">
+        <div class="ts-modal-title">${escapeHtml(this.state.question)}</div>
+        <div class="ts-side-row">
+          <button class="ts-side ts-left" data-side="left">${escapeHtml(this.state.leftLabel)}</button>
+          <button class="ts-side ts-right" data-side="right">${escapeHtml(this.state.rightLabel)}</button>
+        </div>
+        <textarea class="ts-input" maxlength="${MAX_ARG_LENGTH}" placeholder="One line for your side..." rows="2"></textarea>
+        <div class="ts-modal-foot">
+          <button class="ts-cancel">Cancel</button>
+          <button class="ts-submit" disabled>Submit</button>
+        </div>
+        <div class="ts-status" id="ts-modal-status"></div>
+      </div>
+    `;
+    document.body.appendChild(m);
+    this.modal = m;
+
+    let chosenSide: Side | null = null;
+    const sideButtons = m.querySelectorAll<HTMLButtonElement>('.ts-side');
+    const submitBtn = m.querySelector<HTMLButtonElement>('.ts-submit')!;
+    const textarea = m.querySelector<HTMLTextAreaElement>('.ts-input')!;
+    const status = m.querySelector<HTMLDivElement>('#ts-modal-status')!;
+
+    const updateSubmitEnabled = () => {
+      submitBtn.disabled = !chosenSide || textarea.value.trim().length === 0;
+    };
+
+    sideButtons.forEach((b) => {
+      b.addEventListener('click', () => {
+        sideButtons.forEach((x) => x.classList.remove('ts-chosen'));
+        b.classList.add('ts-chosen');
+        chosenSide = (b.dataset.side as Side) ?? null;
+        updateSubmitEnabled();
+      });
+    });
+    textarea.addEventListener('input', updateSubmitEnabled);
+
+    m.querySelector<HTMLButtonElement>('.ts-cancel')!.addEventListener(
+      'click',
+      () => {
+        m.remove();
+        delete this.modal;
+      }
+    );
+
+    submitBtn.addEventListener('click', () => {
+      if (!chosenSide) return;
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Submitting…';
+      void this.submit(chosenSide, textarea.value, status, submitBtn, m);
+    });
+
+    setTimeout(() => textarea.focus(), 50);
+  }
+
+  private async submit(
+    side: Side,
+    text: string,
+    status: HTMLDivElement,
+    btn: HTMLButtonElement,
+    modal: HTMLDivElement
+  ): Promise<void> {
+    try {
+      const res = await fetch('/api/submit', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ pos: { x: ux, y: uy } }),
+        body: JSON.stringify({ side, text }),
       });
-      if (!res.ok) throw new Error(`dig ${res.status}`);
-      return (await res.json()) as DigResponse;
-    } catch (err) {
-      console.error('dig failed', err);
-      return null;
-    }
-  }
-
-  // ---------- Input ----------
-  private async onPointerDown(p: Phaser.Input.Pointer): Promise<void> {
-    if (this.busy) return;
-    if (!isInsideIsland(this.layout, p.x, p.y)) return;
-    if (this.player.tapsUsed >= this.player.tapsLimit) {
-      this.flashOutOfTaps();
-      return;
-    }
-    this.busy = true;
-    const unit = screenToUnit(this.layout, p.x, p.y);
-    const result = await this.postDig(unit.x, unit.y);
-    if (!result) {
-      this.busy = false;
-      return;
-    }
-    this.player = result.player;
-
-    if (result.outcome === 'found') {
-      this.spawnFindBurst(unit.x, unit.y);
-      this.showReveal(result.treasure);
-    } else if (result.outcome === 'miss') {
-      this.spawnMissRipple(unit.x, unit.y, result.nearest);
-    } else {
-      this.flashOutOfTaps();
-    }
-
-    this.refreshHudText();
-    this.redrawMarkers();
-    this.busy = false;
-  }
-
-  // ---------- HUD content ----------
-  private refreshHudText(): void {
-    const tapsLeft = Math.max(
-      0,
-      this.player.tapsLimit - this.player.tapsUsed
-    );
-    this.hud.tapsText.setText(`Taps left: ${tapsLeft} / ${this.player.tapsLimit}`);
-    this.hud.foundText.setText(
-      `Found: ${this.player.found.length} / ${this.treasureCount}`
-    );
-    this.hud.dateText.setText(
-      `Daily Dig · ${this.date} · u/${this.username}`
-    );
-
-    this.hud.leaderboardRows.forEach((row, i) => {
-      const entry = this.leaderboard[i];
-      if (!entry) {
-        row.setText('');
+      if (!res.ok) throw new Error(`submit ${res.status}`);
+      const data = (await res.json()) as SubmitResponse;
+      if (!data.ok) {
+        status.textContent = data.message;
+        btn.disabled = false;
+        btn.textContent = 'Submit';
         return;
       }
-      row.setText(
-        `${i + 1}. ${entry.username} — ${entry.foundCount}🪙 ${entry.tapsUsed}🩸`
-      );
-    });
-
-    if (this.player.hasBuried) {
-      this.hud.burialBtn.setText('✅ Buried for tomorrow');
-      this.hud.burialBtn.disableInteractive();
-      this.hud.burialBtn.setStyle({ backgroundColor: '#555555' });
+      modal.remove();
+      delete this.modal;
+      // Refresh full state so the new fighter shows up on the rope.
+      await this.refresh();
+    } catch (err) {
+      console.error('submit failed', err);
+      status.textContent = 'Network error. Try again.';
+      btn.disabled = false;
+      btn.textContent = 'Submit';
     }
   }
 
-  // ---------- Markers (previously found chests) ----------
-  private redrawMarkers(): void {
-    this.markerLayer.removeAll(true);
-    for (const f of this.player.found) {
-      const p = unitToScreen(this.layout, f.pos.x, f.pos.y);
-      const chest = this.add.container(p.x, p.y);
-      const body = this.add.rectangle(0, 4, 18, 12, 0xb8862a).setStrokeStyle(
-        2,
-        0x4d2e0f
-      );
-      const lid = this.add.rectangle(0, -3, 18, 8, 0xd9a44a).setStrokeStyle(
-        2,
-        0x4d2e0f
-      );
-      const lock = this.add.rectangle(0, 2, 4, 4, 0xfff1a8);
-      chest.add([body, lid, lock]);
-      this.markerLayer.add(chest);
-    }
-  }
-
-  // ---------- Effects ----------
-  private spawnMissRipple(ux: number, uy: number, nearest: number): void {
-    const p = unitToScreen(this.layout, ux, uy);
-    // Map distance to color + max radius. Nearest ~0.04 (find radius) → hot;
-    // ~0.5 → cold. We clamp so the visuals stay readable.
-    const heat = Phaser.Math.Clamp(1 - nearest / 0.5, 0, 1);
-    const color = Phaser.Display.Color.GetColor(
-      Math.round(40 + heat * 215),
-      Math.round(160 - heat * 110),
-      Math.round(255 - heat * 220)
-    );
-    const maxRadius = 24 + heat * 56;
-
-    const ring = this.add.circle(p.x, p.y, 6, color, 0.55);
-    ring.setStrokeStyle(2, color, 1);
-    const dot = this.add.circle(p.x, p.y, 3, 0xffffff, 0.9);
-    const label = this.add
-      .text(p.x, p.y - maxRadius - 6, `${Math.round(nearest * 1000)} m`, {
-        fontFamily: 'Arial Black',
-        fontSize: '14px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 3,
-      })
-      .setOrigin(0.5, 1);
-
-    this.effectsLayer.add([ring, dot, label]);
-
-    this.tweens.add({
-      targets: ring,
-      radius: maxRadius,
-      alpha: 0,
-      duration: 700,
-      ease: 'Quad.easeOut',
-      onUpdate: () => ring.setRadius(ring.radius),
-      onComplete: () => ring.destroy(),
-    });
-    this.tweens.add({
-      targets: dot,
-      alpha: 0,
-      duration: 700,
-      onComplete: () => dot.destroy(),
-    });
-    this.tweens.add({
-      targets: label,
-      alpha: 0,
-      y: label.y - 14,
-      duration: 900,
-      ease: 'Quad.easeOut',
-      delay: 250,
-      onComplete: () => label.destroy(),
-    });
-  }
-
-  private spawnFindBurst(ux: number, uy: number): void {
-    const p = unitToScreen(this.layout, ux, uy);
-    const burst = this.add.circle(p.x, p.y, 10, 0xffd966, 0.85);
-    burst.setStrokeStyle(3, 0xffe97a, 1);
-    this.effectsLayer.add(burst);
-    this.tweens.add({
-      targets: burst,
-      scale: 6,
-      alpha: 0,
-      duration: 600,
-      ease: 'Cubic.easeOut',
-      onComplete: () => burst.destroy(),
-    });
-    // A few sparkle dots.
-    for (let i = 0; i < 8; i++) {
-      const angle = (i / 8) * Math.PI * 2;
-      const spark = this.add.circle(p.x, p.y, 3, 0xfff2a6, 1);
-      this.effectsLayer.add(spark);
-      this.tweens.add({
-        targets: spark,
-        x: p.x + Math.cos(angle) * 50,
-        y: p.y + Math.sin(angle) * 50,
-        alpha: 0,
-        duration: 700,
-        ease: 'Quad.easeOut',
-        onComplete: () => spark.destroy(),
+  private async upvote(argumentId: string): Promise<void> {
+    try {
+      const res = await fetch('/api/upvote', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ argumentId }),
       });
+      if (!res.ok) throw new Error(`upvote ${res.status}`);
+      const data = (await res.json()) as UpvoteResponse;
+      if (!data.ok) return;
+      this.arena.highlightFighter(argumentId);
+      await this.refresh();
+    } catch (err) {
+      console.error('upvote failed', err);
     }
-  }
-
-  private clearReveal(): void {
-    for (const o of this.revealGroup) o.destroy();
-    this.revealGroup = [];
-  }
-
-  private showReveal(t: FoundTreasure): void {
-    this.clearReveal();
-    const { width, height } = this.scale;
-    const cardW = Math.min(width - 32, 460);
-    const cardH = 150;
-    const cx = width / 2;
-    const cy = height / 2;
-
-    const dim = this.add.rectangle(
-      width / 2,
-      height / 2,
-      width,
-      height,
-      0x000000,
-      0.45
-    );
-    dim.setInteractive();
-
-    const card = this.add
-      .rectangle(cx, cy, cardW, cardH, 0xfff7e0, 1)
-      .setStrokeStyle(4, 0x4d2e0f);
-    const title = this.add
-      .text(cx, cy - cardH / 2 + 18, '🎉 You found a chest!', {
-        fontFamily: 'Arial Black',
-        fontSize: '22px',
-        color: '#4d2e0f',
-      })
-      .setOrigin(0.5, 0);
-    const hider = this.add
-      .text(cx, cy - 10, `Buried by u/${t.hider}`, {
-        fontFamily: 'Arial',
-        fontSize: '16px',
-        color: '#4d2e0f',
-      })
-      .setOrigin(0.5, 0);
-    const clue = this.add
-      .text(cx, cy + 12, `"${t.clue}"`, {
-        fontFamily: 'Arial',
-        fontSize: '15px',
-        fontStyle: 'italic',
-        color: '#3a2308',
-        wordWrap: { width: cardW - 40 },
-        align: 'center',
-      })
-      .setOrigin(0.5, 0);
-    const dismiss = this.add
-      .text(cx, cy + cardH / 2 - 22, 'Keep digging', {
-        fontFamily: 'Arial Black',
-        fontSize: '16px',
-        color: '#ffffff',
-        backgroundColor: '#4d2e0f',
-        padding: { x: 12, y: 6 },
-      })
-      .setOrigin(0.5, 0.5)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerup', (p: Phaser.Input.Pointer) => {
-        p.event?.stopPropagation?.();
-        this.clearReveal();
-      });
-
-    this.revealGroup = [dim, card, title, hider, clue, dismiss];
-
-    // Slide the card up from below for a little juice.
-    card.y += 40;
-    title.y += 40;
-    hider.y += 40;
-    clue.y += 40;
-    dismiss.y += 40;
-    this.tweens.add({
-      targets: [card, title, hider, clue, dismiss],
-      y: '-=40',
-      duration: 240,
-      ease: 'Back.easeOut',
-    });
-  }
-
-  private flashOutOfTaps(): void {
-    const { width, height } = this.scale;
-    const txt = this.add
-      .text(width / 2, height * 0.4, 'Out of taps — come back tomorrow!', {
-        fontFamily: 'Arial Black',
-        fontSize: '22px',
-        color: '#ffffff',
-        stroke: '#000000',
-        strokeThickness: 4,
-      })
-      .setOrigin(0.5);
-    this.tweens.add({
-      targets: txt,
-      alpha: 0,
-      duration: 1600,
-      delay: 600,
-      onComplete: () => txt.destroy(),
-    });
   }
 }
+
+const escapeHtml = (s: string): string =>
+  s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
