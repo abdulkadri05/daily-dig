@@ -166,13 +166,14 @@ const bumpStreak = async (user: string): Promise<number> => {
 };
 
 // ---------- Player roster (for live player count) ----------
+// Devvit Redis has no Set commands, so we use a hash as a unique-membership
+// store: presence-of-field = "this user played today", count = hLen.
 const recordPlayer = async (date: string, user: string): Promise<void> => {
-  // sAdd is the natural fit for a unique set. Devvit's Redis supports it.
-  await redis.sAdd(kPlayers(date), user);
+  await redis.hSet(kPlayers(date), { [user]: '1' });
 };
 
 const playerCountFor = async (date: string): Promise<number> => {
-  const n = await redis.sCard(kPlayers(date));
+  const n = await redis.hLen(kPlayers(date));
   return typeof n === 'number' ? n : 0;
 };
 

@@ -39,9 +39,10 @@ api.get('/init', async (c) => {
   try {
     return c.json<InitResponse>(await buildInit());
   } catch (err) {
-    console.error('init error', err);
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+    console.error('[take-sides] init error:', msg);
     return c.json<ErrorResponse>(
-      { status: 'error', message: 'init failed' },
+      { status: 'error', message: `init failed: ${err instanceof Error ? err.message : 'unknown'}` },
       500
     );
   }
@@ -52,9 +53,10 @@ api.get('/refresh', async (c) => {
   try {
     return c.json<InitResponse>(await buildInit());
   } catch (err) {
-    console.error('refresh error', err);
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+    console.error('[take-sides] refresh error:', msg);
     return c.json<ErrorResponse>(
-      { status: 'error', message: 'refresh failed' },
+      { status: 'error', message: `refresh failed: ${err instanceof Error ? err.message : 'unknown'}` },
       500
     );
   }
@@ -75,9 +77,10 @@ api.post('/submit', async (c) => {
       tally: result.tally,
     });
   } catch (err) {
-    console.error('submit error', err);
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+    console.error('[take-sides] submit error:', msg);
     return c.json<ErrorResponse>(
-      { status: 'error', message: 'submit failed' },
+      { status: 'error', message: `submit failed: ${err instanceof Error ? err.message : 'unknown'}` },
       500
     );
   }
@@ -104,9 +107,10 @@ api.post('/upvote', async (c) => {
       tally: result.tally,
     });
   } catch (err) {
-    console.error('upvote error', err);
+    const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+    console.error('[take-sides] upvote error:', msg);
     return c.json<ErrorResponse>(
-      { status: 'error', message: 'upvote failed' },
+      { status: 'error', message: `upvote failed: ${err instanceof Error ? err.message : 'unknown'}` },
       500
     );
   }

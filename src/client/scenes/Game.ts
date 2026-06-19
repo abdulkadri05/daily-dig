@@ -127,12 +127,22 @@ export class Game extends Scene {
   private async loadInit(): Promise<void> {
     try {
       const res = await fetch('/api/init');
-      if (!res.ok) throw new Error(`init ${res.status}`);
+      if (!res.ok) {
+        let detail = `${res.status}`;
+        try {
+          const body = (await res.json()) as { message?: string };
+          if (body?.message) detail = `${res.status} — ${body.message}`;
+        } catch {
+          /* ignore */
+        }
+        throw new Error(`init ${detail}`);
+      }
       const data = (await res.json()) as InitResponse;
       this.applyData(data, /*initial*/ true);
     } catch (err) {
       console.error('init failed', err);
-      this.promptText.setText('Couldn’t reach the server. Try refreshing.');
+      const msg = err instanceof Error ? err.message : String(err);
+      this.promptText.setText(`Server error: ${msg}\nOpen the post inside Reddit to play.`);
     }
   }
 
