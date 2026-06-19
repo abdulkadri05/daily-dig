@@ -1,75 +1,92 @@
-import { Scene, GameObjects } from 'phaser';
+import * as Phaser from 'phaser';
+import { Scene } from 'phaser';
+import {
+  computeIslandLayout,
+  drawIsland,
+  type IslandLayout,
+} from './island';
 
 export class MainMenu extends Scene {
-  background: GameObjects.Image | null = null;
-  logo: GameObjects.Image | null = null;
-  title: GameObjects.Text | null = null;
+  private layout!: IslandLayout;
+  private islandG!: Phaser.GameObjects.Graphics;
+  private title?: Phaser.GameObjects.Text;
+  private subtitle?: Phaser.GameObjects.Text;
+  private cta?: Phaser.GameObjects.Text;
+  private credit?: Phaser.GameObjects.Text;
 
   constructor() {
     super('MainMenu');
   }
 
-  /**
-   * Reset cached GameObject references every time the scene starts.
-   * The same Scene instance is reused by Phaser, so we must ensure
-   * stale (destroyed) objects are cleared out when the scene restarts.
-   */
-  init(): void {
-    this.background = null;
-    this.logo = null;
-    this.title = null;
-  }
-
   create() {
-    this.refreshLayout();
+    this.cameras.main.setBackgroundColor(0x0a2030);
+    this.layout = computeIslandLayout(this.scale.width, this.scale.height);
+    this.islandG = this.add.graphics();
+    drawIsland(this.islandG, this.layout);
 
-    // Re-calculate positions whenever the game canvas is resized (e.g. orientation change).
-    this.scale.on('resize', () => this.refreshLayout());
-
-    this.input.once('pointerdown', () => {
-      this.scene.start('Game');
-    });
-  }
-
-  /**
-   * Positions and (lightly) scales all UI elements based on the current game size.
-   * Call this from create() and from any resize events.
-   */
-  private refreshLayout(): void {
-    const { width, height } = this.scale;
-
-    // Resize camera to new viewport to prevent black bars
-    this.cameras.resize(width, height);
-
-    // Background – stretch to fill the whole canvas
-    if (!this.background) {
-      this.background = this.add.image(0, 0, 'background').setOrigin(0);
-    }
-    this.background!.setDisplaySize(width, height);
-
-    // Logo – keep aspect but scale down for very small screens
-    const scaleFactor = Math.min(width / 1024, height / 768);
-
-    if (!this.logo) {
-      this.logo = this.add.image(0, 0, 'logo');
-    }
-    this.logo!.setPosition(width / 2, height * 0.38).setScale(scaleFactor);
-
-    // Title text – create once, then scale on resize
-    const baseFontSize = 38;
-    if (!this.title) {
-      this.title = this.add
-        .text(0, 0, 'Main Menu', {
-          fontFamily: 'Arial Black',
-          fontSize: `${baseFontSize}px`,
+    this.title = this.add
+      .text(0, 0, 'The Daily Dig', {
+        fontFamily: 'Arial Black',
+        fontSize: '42px',
+        color: '#fff7e0',
+        stroke: '#000000',
+        strokeThickness: 6,
+      })
+      .setOrigin(0.5);
+    this.subtitle = this.add
+      .text(
+        0,
+        0,
+        'Hunt for chests other Redditors buried.\nLeave one behind for tomorrow.',
+        {
+          fontFamily: 'Arial',
+          fontSize: '16px',
           color: '#ffffff',
           stroke: '#000000',
-          strokeThickness: 8,
+          strokeThickness: 3,
           align: 'center',
-        })
-        .setOrigin(0.5);
-    }
-    this.title!.setPosition(width / 2, height * 0.6);
-    this.title!.setScale(scaleFactor);
+          wordWrap: { width: 320 },
+        }
+      )
+      .setOrigin(0.5);
+    this.cta = this.add
+      .text(0, 0, '⛏️  Start digging', {
+        fontFamily: 'Arial Black',
+        fontSize: '22px',
+        color: '#ffffff',
+        backgroundColor: '#d93900',
+        padding: { x: 18, y: 10 },
+      })
+      .setOrigin(0.5)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerup', () => this.scene.start('Game'));
+    this.credit = this.add
+      .text(0, 0, 'A daily game for r/__', {
+        fontFamily: 'Arial',
+        fontSize: '12px',
+        color: '#cccccc',
+        stroke: '#000000',
+        strokeThickness: 2,
+      })
+      .setOrigin(0.5);
+
+    this.positionUi();
+    this.scale.on('resize', () => this.refreshLayout());
+  }
+
+  private refreshLayout(): void {
+    const { width, height } = this.scale;
+    this.cameras.resize(width, height);
+    this.layout = computeIslandLayout(width, height);
+    drawIsland(this.islandG, this.layout);
+    this.positionUi();
+  }
+
+  private positionUi(): void {
+    const { width, height } = this.scale;
+    if (this.title) this.title.setPosition(width / 2, height * 0.22);
+    if (this.subtitle) this.subtitle.setPosition(width / 2, height * 0.32);
+    if (this.cta) this.cta.setPosition(width / 2, height * 0.62);
+    if (this.credit) this.credit.setPosition(width / 2, height - 18);
   }
 }

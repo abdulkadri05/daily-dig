@@ -7,25 +7,27 @@
       name="viewport"
       content="initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, width=device-width, height=device-height, user-scalable=0"
     />
-    <title>devvit</title>
+    <title>The Daily Dig</title>
   </head>
   <body class="app">
-    <img class="snoo" src="/snoo.png" alt="Snoo" />
     <div class="content">
-      <h1 class="title" id="title"></h1>
-      <p class="description">
-        Edit <span class="code">src/client/splash.ts</span> to get started.
+      <div class="map" aria-hidden="true">
+        <div class="island"></div>
+        <div class="x x1">✕</div>
+        <div class="x x2">✕</div>
+        <div class="x x3">✕</div>
+      </div>
+      <h1 class="title" id="title">The Daily Dig</h1>
+      <p class="description" id="description">
+        Hunt for chests Redditors buried yesterday. Leave one behind for
+        tomorrow.
       </p>
     </div>
     <div>
-      <button class="start-button" id="start-button">Start</button>
+      <button class="start-button" id="start-button">⛏️ Start digging</button>
     </div>
     <footer class="footer">
-      <div class="docs-link" tabindex="0" id="docs-link">Docs</div>
-      <span class="divider">|</span>
-      <div class="docs-link" tabindex="0" id="playtest-link">r/Devvit</div>
-      <span class="divider">|</span>
-      <div class="docs-link" tabindex="0" id="discord-link">Discord</div>
+      <div class="docs-link" tabindex="0" id="rules-link">How to play</div>
     </footer>
     <script type="module" src="splash.ts" defer></script>
   </body>

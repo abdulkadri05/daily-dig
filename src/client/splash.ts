@@ -1,30 +1,27 @@
-import { navigateTo, context, requestExpandedMode } from '@devvit/web/client';
+import { context, requestExpandedMode, showToast } from '@devvit/web/client';
 
-const docsLink = document.getElementById('docs-link') as HTMLDivElement;
-const playtestLink = document.getElementById('playtest-link') as HTMLDivElement;
-const discordLink = document.getElementById('discord-link') as HTMLDivElement;
 const startButton = document.getElementById('start-button') as HTMLButtonElement;
+const rulesLink = document.getElementById('rules-link') as HTMLDivElement;
+const titleEl = document.getElementById('title') as HTMLHeadingElement;
+const descEl = document.getElementById('description') as HTMLParagraphElement;
 
 startButton.addEventListener('click', (e) => {
   requestExpandedMode(e, 'game');
 });
 
-docsLink.addEventListener('click', () => {
-  navigateTo('https://developers.reddit.com/docs');
+rulesLink.addEventListener('click', () => {
+  showToast(
+    'Tap the island to dig. Closer taps make warmer ripples. Find chests, then bury one for tomorrow.'
+  );
 });
-
-playtestLink.addEventListener('click', () => {
-  navigateTo('https://www.reddit.com/r/Devvit');
-});
-
-discordLink.addEventListener('click', () => {
-  navigateTo('https://discord.com/invite/R7yu2wh9Qz');
-});
-
-const titleElement = document.getElementById('title') as HTMLHeadingElement;
 
 function init() {
-  titleElement.textContent = `Hey ${context.username ?? 'user'} 👋`;
+  const user = context.username;
+  if (user) {
+    titleEl.textContent = `Hey ${user} 👋`;
+    descEl.textContent =
+      'Hunt for chests other Redditors buried yesterday. Bury one for tomorrow.';
+  }
 }
 
 init();
