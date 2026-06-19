@@ -1,7 +1,8 @@
 import { reddit } from '@devvit/web/server';
+import { dayKey } from '../../shared/dateUtil';
 
 export const createPost = async () => {
   return await reddit.submitCustomPost({
-    title: 'daily-dig',
+    title: `🪙 The Daily Dig — ${dayKey()}`,
   });
 };

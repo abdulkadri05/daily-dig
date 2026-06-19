@@ -1,93 +1,127 @@
-import { Hono } from 'hono';
-import { context, redis, reddit } from '@devvit/web/server';
+import { Hono, type Context } from 'hono';
+import { context, reddit } from '@devvit/web/server';
 import type {
-  DecrementResponse,
-  IncrementResponse,
-  InitResponse,
+  BuryRequest,
+  BuryResponse,
+  DigRequest,
+  DigResponse,
+  ErrorResponse,
+  InitGameResponse,
+  LeaderboardResponse,
 } from '../../shared/api';
-
-type ErrorResponse = {
-  status: 'error';
-  message: string;
-};
+import { dayKey } from '../../shared/dateUtil';
+import { doBury, doDig, getLeaderboard, initToday } from '../core/game';
 
 export const api = new Hono();
 
-api.get('/init', async (c) => {
-  const { postId } = context;
+const missingPost = (c: Context) =>
+  c.json<ErrorResponse>(
+    { status: 'error', message: 'postId missing from context' },
+    400
+  );
 
-  if (!postId) {
-    console.error('API Init Error: postId not found in devvit context');
-    return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required but missing from context',
-      },
-      400
-    );
-  }
+api.get('/init', async (c) => {
+  if (!context.postId) return missingPost(c);
 
   try {
-    const [count, username] = await Promise.all([
-      redis.get('count'),
-      reddit.getCurrentUsername(),
+    const username = (await reddit.getCurrentUsername()) ?? 'anonymous';
+    const [{ date, treasureCount, player }, leaderboard] = await Promise.all([
+      initToday(username),
+      getLeaderboard(dayKey()),
     ]);
-
-    return c.json<InitResponse>({
+    return c.json<InitGameResponse>({
       type: 'init',
-      postId: postId,
-      count: count ? parseInt(count) : 0,
-      username: username ?? 'anonymous',
+      date,
+      username,
+      treasureCount,
+      player,
+      leaderboard,
     });
-  } catch (error) {
-    console.error(`API Init Error for post ${postId}:`, error);
-    let errorMessage = 'Unknown error during initialization';
-    if (error instanceof Error) {
-      errorMessage = `Initialization failed: ${error.message}`;
+  } catch (err) {
+    console.error('init error', err);
+    return c.json<ErrorResponse>(
+      { status: 'error', message: 'init failed' },
+      500
+    );
+  }
+});
+
+api.post('/dig', async (c) => {
+  if (!context.postId) return missingPost(c);
+
+  try {
+    const body = await c.req.json<DigRequest>();
+    if (
+      !body ||
+      typeof body.pos?.x !== 'number' ||
+      typeof body.pos?.y !== 'number'
+    ) {
+      return c.json<ErrorResponse>(
+        { status: 'error', message: 'pos.x and pos.y required' },
+        400
+      );
     }
+    const username = (await reddit.getCurrentUsername()) ?? 'anonymous';
+    const result = await doDig(username, body.pos);
+    return c.json<DigResponse>(result);
+  } catch (err) {
+    console.error('dig error', err);
     return c.json<ErrorResponse>(
-      { status: 'error', message: errorMessage },
-      400
+      { status: 'error', message: 'dig failed' },
+      500
     );
   }
 });
 
-api.post('/increment', async (c) => {
-  const { postId } = context;
-  if (!postId) {
+api.post('/bury', async (c) => {
+  if (!context.postId) return missingPost(c);
+
+  try {
+    const body = await c.req.json<BuryRequest>();
+    if (
+      !body ||
+      typeof body.pos?.x !== 'number' ||
+      typeof body.pos?.y !== 'number' ||
+      typeof body.clue !== 'string'
+    ) {
+      return c.json<ErrorResponse>(
+        { status: 'error', message: 'pos and clue required' },
+        400
+      );
+    }
+    const username = (await reddit.getCurrentUsername()) ?? 'anonymous';
+    const result = await doBury(username, body.pos, body.clue);
+    return c.json<BuryResponse>({
+      type: 'bury',
+      ok: result.ok,
+      message: result.message,
+      player: result.player,
+    });
+  } catch (err) {
+    console.error('bury error', err);
     return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required',
-      },
-      400
+      { status: 'error', message: 'bury failed' },
+      500
     );
   }
-
-  const count = await redis.incrBy('count', 1);
-  return c.json<IncrementResponse>({
-    count,
-    postId,
-    type: 'increment',
-  });
 });
 
-api.post('/decrement', async (c) => {
-  const { postId } = context;
-  if (!postId) {
+api.get('/leaderboard', async (c) => {
+  if (!context.postId) return missingPost(c);
+
+  try {
+    const date = dayKey();
+    const entries = await getLeaderboard(date);
+    return c.json<LeaderboardResponse>({
+      type: 'leaderboard',
+      date,
+      entries,
+    });
+  } catch (err) {
+    console.error('leaderboard error', err);
     return c.json<ErrorResponse>(
-      {
-        status: 'error',
-        message: 'postId is required',
-      },
-      400
+      { status: 'error', message: 'leaderboard failed' },
+      500
     );
   }
-
-  const count = await redis.incrBy('count', -1);
-  return c.json<DecrementResponse>({
-    count,
-    postId,
-    type: 'decrement',
-  });
 });
